@@ -1,0 +1,24 @@
+{
+  "name": "metylosa-global-payments",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "dev": "pnpm --filter @metylosa/api-gateway dev",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "test": "pnpm --filter @metylosa/api-gateway test",
+    "test:unit": "pnpm --filter @metylosa/api-gateway test:unit",
+    "test:integration": "pnpm --filter @metylosa/api-gateway test:integration",
+    "test:e2e": "pnpm --filter @metylosa/api-gateway test:e2e"
+  },
+  "devDependencies": {
+    "prisma": "^6.7.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.8.3",
+    "tsx": "^4.19.2"
+  }
+}
