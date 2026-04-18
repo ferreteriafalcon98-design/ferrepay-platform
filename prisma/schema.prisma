@@ -1,0 +1,653 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String          @id @default(cuid())
+  phone             String          @unique
+  status            UserStatus      @default(PENDING)
+  pinHash           String?
+  biometricEnabled  Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  otpChallenges     OtpChallenge[]
+  sessions          Session[]
+  devices           Device[]
+  securityEvents    SecurityEvent[]
+  wallets           Wallet[]
+  beneficiaries     Beneficiary[]
+  payoutRequests    PayoutRequest[]
+  riskEvents        RiskEvent[]
+  user360Audits     User360Audit[]
+  businessEvents    BusinessEvent[]
+  notifications     Notification[]
+  saleOrders        SaleOrder[]
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+}
+
+model OtpChallenge {
+  id           String       @id @default(cuid())
+  userId       String
+  purpose      OtpPurpose
+  otpHash      String
+  attempts     Int          @default(0)
+  maxAttempts  Int          @default(5)
+  expiresAt    DateTime
+  verifiedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([userId, purpose])
+}
+
+enum OtpPurpose {
+  REGISTER
+  LOGIN
+}
+
+model Session {
+  id               String      @id @default(cuid())
+  userId           String
+  deviceId         String
+  refreshTokenHash String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime    @default(now())
+
+  user             User        @relation(fields: [userId], references: [id])
+  device           Device      @relation(fields: [deviceId], references: [id])
+
+  @@index([userId])
+  @@index([deviceId])
+}
+
+model Device {
+  id             String         @id @default(cuid())
+  userId         String
+  label          String
+  fingerprint    String
+  trustStatus    DeviceTrust    @default(UNTRUSTED)
+  revokedAt      DateTime?
+  createdAt      DateTime       @default(now())
+
+  user           User           @relation(fields: [userId], references: [id])
+  sessions       Session[]
+
+  @@unique([userId, fingerprint])
+}
+
+enum DeviceTrust {
+  TRUSTED
+  UNTRUSTED
+  REVOKED
+}
+
+model SecurityEvent {
+  id          String            @id @default(cuid())
+  userId      String
+  type        SecurityEventType
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+
+  user        User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+enum SecurityEventType {
+  REGISTER_STARTED
+  REGISTER_VERIFIED
+  LOGIN_STARTED
+  LOGIN_VERIFIED
+  SESSION_REFRESHED
+  LOGOUT
+  PIN_SET
+  BIOMETRIC_ENABLED
+  BIOMETRIC_DISABLED
+  DEVICE_REVOKED
+  SESSION_REVOKED
+}
+
+model Wallet {
+  id              String           @id @default(cuid())
+  userId          String
+  countryCode     String
+  currencyCode    String
+  status          WalletStatus     @default(ACTIVE)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id])
+  aliases         WalletAlias[]
+  ledgerAccounts  LedgerAccount[]
+  holds           WalletHold[]
+  payoutRequests  PayoutRequest[]
+
+  @@unique([userId, countryCode, currencyCode])
+  @@index([userId])
+}
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+}
+
+model WalletAlias {
+  id              String           @id @default(cuid())
+  walletId        String
+  aliasType       WalletAliasType
+  aliasValue      String
+  isPrimary       Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+
+  wallet          Wallet           @relation(fields: [walletId], references: [id])
+
+  @@unique([aliasType, aliasValue])
+  @@index([walletId])
+}
+
+enum WalletAliasType {
+  PHONE_E164
+}
+
+model LedgerAccount {
+  id                  String              @id @default(cuid())
+  walletId            String?
+  code                String              @unique
+  type                LedgerAccountType
+  currencyCode        String
+  currentBalanceMinor BigInt              @default(0)
+  createdAt           DateTime            @default(now())
+
+  wallet              Wallet?             @relation(fields: [walletId], references: [id])
+  debitEntries        LedgerEntry[]       @relation("DebitAccount")
+  creditEntries       LedgerEntry[]       @relation("CreditAccount")
+
+  @@index([walletId, currencyCode])
+}
+
+enum LedgerAccountType {
+  USER_WALLET
+  SYSTEM_CLEARING
+}
+
+model LedgerTransaction {
+  id             String                  @id @default(cuid())
+  origin         LedgerOrigin
+  reference      String                  @unique
+  businessRef    String?
+  currencyCode   String
+  amountMinor    BigInt
+  status         LedgerTransactionStatus @default(POSTED)
+  reversedByTxId String?
+  reversalOfTxId String?
+  metadata       Json?
+  createdAt      DateTime                @default(now())
+
+  entries        LedgerEntry[]
+
+  @@index([businessRef])
+  @@index([reversalOfTxId])
+}
+
+enum LedgerOrigin {
+  WALLET_BOOTSTRAP
+  P2P_INTERNAL
+  PAYOUT_EXTERNAL
+  MANUAL_ADJUSTMENT
+}
+
+enum LedgerTransactionStatus {
+  POSTED
+  REVERSED
+}
+
+model LedgerEntry {
+  id              String            @id @default(cuid())
+  transactionId   String
+  debitAccountId  String
+  creditAccountId String
+  amountMinor     BigInt
+  createdAt       DateTime          @default(now())
+
+  transaction     LedgerTransaction @relation(fields: [transactionId], references: [id])
+  debitAccount    LedgerAccount     @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount   LedgerAccount     @relation("CreditAccount", fields: [creditAccountId], references: [id])
+
+  @@index([transactionId])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+}
+
+model FeeRule {
+  id                String       @id @default(cuid())
+  flow              PricingFlow
+  countryCode       String
+  currencyCode      String
+  fixedFeeMinor     BigInt       @default(0)
+  percentageBps     Int          @default(0)
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+
+  @@index([flow, countryCode, currencyCode, isActive])
+}
+
+model PricingQuote {
+  id                String       @id @default(cuid())
+  flow              PricingFlow
+  countryCode       String
+  currencyCode      String
+  amountMinor       BigInt
+  feeAmountMinor    BigInt
+  grossAmountMinor  BigInt
+  netAmountMinor    BigInt
+  status            QuoteStatus  @default(ACTIVE)
+  expiresAt         DateTime
+  metadata          Json?
+  createdAt         DateTime     @default(now())
+
+  payoutRequests    PayoutRequest[]
+
+  @@index([flow, status, expiresAt])
+}
+
+enum PricingFlow {
+  P2P
+  PAYOUT
+}
+
+enum QuoteStatus {
+  ACTIVE
+  EXPIRED
+  CONSUMED
+}
+
+model Beneficiary {
+  id                String             @id @default(cuid())
+  userId            String
+  alias             String
+  accountNumber     String
+  bankCode          String
+  countryCode       String
+  currencyCode      String
+  status            BeneficiaryStatus  @default(ACTIVE)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id])
+  payoutRequests    PayoutRequest[]
+
+  @@index([userId, status])
+}
+
+enum BeneficiaryStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model WalletHold {
+  id                String          @id @default(cuid())
+  walletId          String
+  amountMinor       BigInt
+  reason            WalletHoldReason
+  status            WalletHoldStatus @default(ACTIVE)
+  businessRef       String
+  createdAt         DateTime        @default(now())
+  releasedAt        DateTime?
+
+  wallet            Wallet          @relation(fields: [walletId], references: [id])
+  payoutRequests    PayoutRequest[]
+
+  @@index([walletId, status])
+  @@unique([businessRef])
+}
+
+enum WalletHoldReason {
+  PAYOUT
+}
+
+enum WalletHoldStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+  REVERSED
+}
+
+model PayoutRequest {
+  id                String            @id @default(cuid())
+  userId            String
+  walletId          String
+  beneficiaryId     String
+  quoteId           String
+  holdId            String
+  amountMinor       BigInt
+  feeAmountMinor    BigInt
+  grossAmountMinor  BigInt
+  netAmountMinor    BigInt
+  status            PayoutStatus      @default(PENDING_REVIEW)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id])
+  wallet            Wallet            @relation(fields: [walletId], references: [id])
+  beneficiary       Beneficiary       @relation(fields: [beneficiaryId], references: [id])
+  quote             PricingQuote      @relation(fields: [quoteId], references: [id])
+  hold              WalletHold        @relation(fields: [holdId], references: [id])
+  reviewCases       ManualReviewCase[]
+
+  @@index([userId, status])
+}
+
+enum PayoutStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  PROCESSING
+  COMPLETED
+  REVERSED
+}
+
+model ManualReviewCase {
+  id                String            @id @default(cuid())
+  payoutRequestId   String
+  status            ReviewStatus      @default(PENDING)
+  reviewerId        String?
+  decisionNotes     String?
+  riskScore         Int?
+  riskDecision      RiskDecision?
+  slaDueAt          DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  payoutRequest     PayoutRequest     @relation(fields: [payoutRequestId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([riskDecision, slaDueAt])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+
+enum RiskDecision {
+  ALLOW
+  REVIEW
+  BLOCK
+}
+
+model RiskEvent {
+  id                String         @id @default(cuid())
+  userId            String
+  source            RiskSource
+  businessRef       String
+  score             Int
+  decision          RiskDecision
+  signals           Json?
+  createdAt         DateTime       @default(now())
+
+  user              User           @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([businessRef])
+}
+
+enum RiskSource {
+  AUTH
+  P2P
+  PAYOUT
+  SECURITY
+}
+
+model TreasuryAccount {
+  id                String         @id @default(cuid())
+  countryCode       String
+  currencyCode      String
+  accountType       TreasuryAccountType
+  balanceMinor      BigInt         @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([countryCode, currencyCode])
+}
+
+enum TreasuryAccountType {
+  LOCAL_CASH
+  USDT_RESERVE
+}
+
+model TreasuryCountryPolicy {
+  id                String         @id @default(cuid())
+  countryCode       String         @unique
+  corridor          String
+  localCashMinMinor BigInt
+  localCashMaxMinor BigInt
+  usdtMinMinor      BigInt
+  usdtMaxMinor      BigInt
+  rebalanceThresholdBps Int
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model TreasuryRebalanceCycle {
+  id                String         @id @default(cuid())
+  countryCode       String
+  status            RebalanceStatus @default(PENDING)
+  forecastOutflowMinor BigInt      @default(0)
+  forecastInflowMinor  BigInt      @default(0)
+  createdAt         DateTime       @default(now())
+}
+
+enum RebalanceStatus {
+  PENDING
+  EXECUTING
+  DONE
+}
+
+model TreasuryRebalanceOrder {
+  id                String         @id @default(cuid())
+  cycleId           String
+  fromAccountType   TreasuryAccountType
+  toAccountType     TreasuryAccountType
+  amountMinor       BigInt
+  status            RebalanceOrderStatus @default(PENDING)
+  createdAt         DateTime       @default(now())
+}
+
+enum RebalanceOrderStatus {
+  PENDING
+  EXECUTED
+  CANCELLED
+}
+
+
+model User360Audit {
+  id                String         @id @default(cuid())
+  userId            String
+  actorId           String
+  action            String
+  requestId         String
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+
+  user              User           @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+model BusinessEvent {
+  id                String         @id @default(cuid())
+  userId            String?
+  type              String
+  requestId         String
+  payload           Json?
+  createdAt         DateTime       @default(now())
+
+  user              User?          @relation(fields: [userId], references: [id])
+
+  @@index([type, createdAt])
+  @@index([requestId])
+}
+
+model SaleOrder {
+  id                String         @id @default(cuid())
+  userId            String
+  externalRef       String         @unique
+  countryCode       String
+  currencyCode      String
+  amountMinor       BigInt
+  status            SaleOrderStatus @default(CREATED)
+  createdAt         DateTime       @default(now())
+
+  user              User           @relation(fields: [userId], references: [id])
+  invoiceRequests   InvoiceRequest[]
+}
+
+enum SaleOrderStatus {
+  CREATED
+  INVOICED
+}
+
+model InvoiceRequest {
+  id                String         @id @default(cuid())
+  saleOrderId       String
+  status            InvoiceRequestStatus @default(PENDING)
+  decision          FiscalDecision?
+  errorCode         String?
+  errorMessage      String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  saleOrder         SaleOrder      @relation(fields: [saleOrderId], references: [id])
+  fiscalDocuments   FiscalDocument[]
+
+  @@index([status, createdAt])
+}
+
+enum InvoiceRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum FiscalDecision {
+  ACCEPT
+  REJECT
+}
+
+model FiscalDocument {
+  id                String         @id @default(cuid())
+  invoiceRequestId  String
+  status            FiscalDocumentStatus @default(DRAFT)
+  documentNumber    String?
+  xmlPayload        String?
+  createdAt         DateTime       @default(now())
+
+  invoiceRequest    InvoiceRequest @relation(fields: [invoiceRequestId], references: [id])
+  submissions       FiscalSubmission[]
+  artifacts         FiscalArtifact[]
+
+  @@index([invoiceRequestId, status])
+}
+
+enum FiscalDocumentStatus {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+}
+
+model FiscalSubmission {
+  id                String         @id @default(cuid())
+  fiscalDocumentId  String
+  provider          String
+  status            FiscalSubmissionStatus @default(PENDING)
+  responseCode      String?
+  responseMessage   String?
+  requestPayload    Json?
+  responsePayload   Json?
+  createdAt         DateTime       @default(now())
+
+  fiscalDocument    FiscalDocument @relation(fields: [fiscalDocumentId], references: [id])
+
+  @@index([fiscalDocumentId, createdAt])
+}
+
+enum FiscalSubmissionStatus {
+  PENDING
+  SENT
+  ACCEPTED
+  REJECTED
+  ERROR
+}
+
+model FiscalArtifact {
+  id                String         @id @default(cuid())
+  fiscalDocumentId  String
+  kind              FiscalArtifactKind
+  uri               String
+  checksum          String
+  createdAt         DateTime       @default(now())
+
+  fiscalDocument    FiscalDocument @relation(fields: [fiscalDocumentId], references: [id])
+
+  @@index([fiscalDocumentId, kind])
+}
+
+enum FiscalArtifactKind {
+  XML
+  PDF
+  ACK
+}
+
+model Notification {
+  id                String         @id @default(cuid())
+  userId            String
+  type              NotificationType
+  dedupKey          String
+  channel           NotificationChannel
+  title             String
+  body              String
+  status            NotificationStatus @default(PENDING)
+  createdAt         DateTime       @default(now())
+
+  user              User           @relation(fields: [userId], references: [id])
+
+  @@unique([dedupKey])
+  @@index([userId, type, createdAt])
+}
+
+enum NotificationType {
+  OTP_SENT
+  LOGIN_NEW_DEVICE
+  P2P_RECEIVED
+  PAYOUT_REQUESTED
+  PAYOUT_APPROVED
+  PAYOUT_REJECTED
+  SECURITY_ALERT
+}
+
+enum NotificationChannel {
+  PUSH
+  SMS
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  SKIPPED
+}

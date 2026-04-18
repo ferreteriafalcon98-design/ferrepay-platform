@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "declaration": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@metylosa/db": [
+        "packages/db/src"
+      ],
+      "@metylosa/auth": [
+        "packages/auth/src"
+      ],
+      "@metylosa/security": [
+        "packages/security/src"
+      ],
+      "@metylosa/devices": [
+        "packages/devices/src"
+      ],
+      "@metylosa/users": [
+        "packages/users/src"
+      ],
+      "@metylosa/shared-kernel": [
+        "packages/shared-kernel/src"
+      ],
+      "@metylosa/wallet": [
+        "packages/wallet/src"
+      ]
+    }
+  }
+}
